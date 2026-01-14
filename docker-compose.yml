@@ -1,0 +1,69 @@
+version: '3.8'
+
+services:
+  db:
+    image: postgres:15-alpine
+    restart: always
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-tabs_tg}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - app_network
+
+  api:
+    build: 
+      context: ./backend
+      dockerfile: Dockerfile
+    command: uvicorn app.main_api:app --host 0.0.0.0 --port 8000 --reload
+    volumes:
+      - ./backend:/app
+    ports:
+      - "8000:8000"
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@db:5432/${POSTGRES_DB:-tabs_tg}
+    depends_on:
+      - db
+    networks:
+      - app_network
+
+  bot:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    command: python -m app.main_bot
+    volumes:
+      - ./backend:/app
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@db:5432/${POSTGRES_DB:-tabs_tg}
+      BOT_TOKEN: ${BOT_TOKEN}
+    depends_on:
+      - db
+    networks:
+      - app_network
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    command: npm run dev
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    ports:
+      - "3000:3000"
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:8000
+    networks:
+      - app_network
+
+networks:
+  app_network:
+    driver: bridge
+
+volumes:
+  postgres_data:
