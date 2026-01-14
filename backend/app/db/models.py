@@ -35,6 +35,7 @@ class Post(Base):
     telegram_message_id = Column(Integer, unique=True, index=True)
     content = Column(Text, nullable=True)
     entities = Column(Text, nullable=True)  # JSON string of message entities
+    source_url = Column(String, nullable=True)  # Original post URL if forwarded
     media_url = Column(String, nullable=True)
     media_type = Column(String, nullable=True)
     media_group_id = Column(String, nullable=True)

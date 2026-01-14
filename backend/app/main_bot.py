@@ -21,6 +21,10 @@ logging.basicConfig(level=logging.INFO)
 bot = Bot(token=settings.BOT_TOKEN)
 dp = Dispatcher()
 
+# Track media groups to avoid duplicate responses
+media_group_messages = {}
+media_group_locks = {}
+
 @dp.message(CommandStart())
 async def cmd_start(message: types.Message):
     # Check for deep linking arguments
@@ -61,10 +65,25 @@ async def save_post(message: types.Message):
     content = message.text or message.caption or None
     media_url = None
     media_type = None
+    source_url = None
     
-    # Extract entities (formatting, links, etc.)
-    entities_data = None
-    entities = message.entities or message.caption_entities
+    # Extract source URL from forwarded message
+    if message.forward_from_chat:
+        # Message forwarded from a channel or group
+        chat = message.forward_from_chat
+        msg_id = message.forward_from_message_id
+        
+        if chat.username:
+            # Public channel/group
+            source_url = f"https://t.me/{chat.username}/{msg_id}"
+        else:
+            # Private channel/group (use chat ID)
+            # Remove the -100 prefix from chat ID for the link
+            chat_id_str = str(chat.id)
+            if chat_id_str.startswith('-100'):
+                chat_id_str = chat_id_str[4:]
+            source_url = f"https://t.me/c/{chat_id_str}/{msg_id}"
+    
     if entities:
         entities_list = []
         for entity in entities:
@@ -142,6 +161,7 @@ async def save_post(message: types.Message):
             user_id=user.id,
             content=content,
             entities=entities_data,
+            source_url=source_url,
             media_url=media_url,
             media_type=media_type,
             media_group_id=message.media_group_id
@@ -149,11 +169,31 @@ async def save_post(message: types.Message):
         session.add(new_post)
         await session.commit()
     
-    # Reply to user
-    if (message.photo or message.video) and not media_url:
-        await message.reply("⚠️ Saved text, but media file is too large to download!")
-    else:
-        await message.reply("Saved!")
+    # Reply to user (only once per media group)
+    should_reply = True
+    if message.media_group_id:
+        # For media groups, only reply once after all messages are processed
+        if message.media_group_id not in media_group_messages:
+            media_group_messages[message.media_group_id] = True
+            # Wait a bit to ensure all messages in the group are processed
+            await asyncio.sleep(0.5)
+        else:
+            should_reply = False
+    
+    if should_reply:
+        if (message.photo or message.video) and not media_url:
+            await message.reply("⚠️ Saved text, but media file is too large to download!")
+        else:
+            await message.reply("Saved!")
+    
+    # Clean up old media group tracking
+    if message.media_group_id and message.media_group_id in media_group_messages:
+        # Remove after 10 seconds to prevent memory leak
+        async def cleanup():
+            await asyncio.sleep(10)
+            if message.media_group_id in media_group_messages:
+                del media_group_messages[message.media_group_id]
+        asyncio.create_task(cleanup())
 
 async def main():
     async with engine.begin() as conn:

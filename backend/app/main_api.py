@@ -136,6 +136,8 @@ async def get_posts(
                 # If current group has no content but this post does, update content
                 if not current_group['content'] and post.content:
                     current_group['content'] = post.content
+                    current_group['entities'] = post.entities
+                    current_group['source_url'] = post.source_url
             else:
                 # Found a new group (or different group), push previous if exists
                 if current_group:
@@ -147,6 +149,7 @@ async def get_posts(
                     'telegram_message_id': post.telegram_message_id,
                     'content': post.content,
                     'entities': post.entities,
+                    'source_url': post.source_url,
                     'created_at': post.created_at,
                     'media_group_id': post.media_group_id,
                     'media': []
@@ -168,6 +171,7 @@ async def get_posts(
                 'telegram_message_id': post.telegram_message_id,
                 'content': post.content,
                 'entities': post.entities,
+                'source_url': post.source_url,
                 'created_at': post.created_at,
                 'media_group_id': None,
                 'media': []
