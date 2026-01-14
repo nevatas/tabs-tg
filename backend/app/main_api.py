@@ -125,62 +125,66 @@ async def get_posts(
     result = await db.execute(query)
     posts = result.scalars().all()
     
-    # Grouping Logic (Same as before)
+    # Updated Grouping Logic
     grouped_posts = []
-    current_group = None
+    processed_group_ids = set()
     
-    # Posts are ordered by position/created_at.
-    # Grouping logic assumes group items are adjacent.
-    # With manual ordering, users might separate group items. 
-    # BUT typically a group is a single logical unit.
-    # Ideally, we should treat a group as a single "Item" for ordering.
-    # For now, let's keep the assumption they stay together or the user reordered them together.
-    # Or, we can just group by ID effectively.
-    
+    # helper to find all siblings
+    def get_group_siblings(group_id, all_posts):
+        return [p for p in all_posts if p.media_group_id == group_id]
+
     for post in posts:
-        # If post has a group_id
+        # 1. Check if part of a media group
         if post.media_group_id:
-            # Check if we are already building a group with this id
-            if current_group and current_group['media_group_id'] == post.media_group_id:
-                # Add to current group
-                if post.media_url and post.media_type:
-                    current_group['media'].append({
-                        'url': post.media_url,
-                        'type': post.media_type
-                    })
-                # If current group has no content but this post does, update content
-                if not current_group['content'] and post.content:
-                    current_group['content'] = post.content
-                    current_group['entities'] = post.entities
-                    current_group['source_url'] = post.source_url
-            else:
-                # Found a new group (or different group), push previous if exists
-                if current_group:
-                    grouped_posts.append(current_group)
+            if post.media_group_id in processed_group_ids:
+                continue
                 
-                # Start new group
-                current_group = {
-                    'id': post.id,
-                    'telegram_message_id': post.telegram_message_id,
-                    'content': post.content,
-                    'entities': post.entities,
-                    'source_url': post.source_url,
-                    'created_at': post.created_at,
-                    'media_group_id': post.media_group_id,
-                    'media': []
-                }
-                if post.media_url and post.media_type:
-                    current_group['media'].append({
-                        'url': post.media_url,
-                        'type': post.media_type
-                    })
-        else:
-            # Not part of a group
-            if current_group:
-                grouped_posts.append(current_group)
-                current_group = None
+            # New group encountered
+            siblings = get_group_siblings(post.media_group_id, posts)
             
-            # Add single post
+            # Sort siblings by id or created_at to maintain internal order (if any)
+            # usually message id is good proxy for chronological order in TG
+            siblings.sort(key=lambda x: x.telegram_message_id)
+            
+            # Construct group object
+            # Use the properties of the *first* sibling (or the one carrying content)
+            # Generally, the caption is on one of them (often the first or last).
+            
+            # Find caption
+            content = None
+            entities = None
+            source_url = None
+            
+            media_items = []
+            
+            for sib in siblings:
+                if sib.content and not content:
+                    content = sib.content
+                    entities = sib.entities
+                    source_url = sib.source_url
+                
+                if sib.media_url and sib.media_type:
+                    media_items.append({
+                        'url': sib.media_url,
+                        'type': sib.media_type
+                    })
+
+            group_obj = {
+                'id': post.id, # Use ID of the current post as representative (for key/sorting)
+                'telegram_message_id': post.telegram_message_id,
+                'content': content,
+                'entities': entities,
+                'source_url': source_url,
+                'created_at': post.created_at,
+                'media_group_id': post.media_group_id,
+                'media': media_items
+            }
+            
+            grouped_posts.append(group_obj)
+            processed_group_ids.add(post.media_group_id)
+            
+        else:
+            # 2. Single Post
             single_post = {
                 'id': post.id,
                 'telegram_message_id': post.telegram_message_id,
@@ -197,11 +201,7 @@ async def get_posts(
                     'type': post.media_type
                 })
             grouped_posts.append(single_post)
-    
-    # Append last group if exists
-    if current_group:
-        grouped_posts.append(current_group)
-        
+
     return grouped_posts
 
 class ReorderRequest(BaseModel):
