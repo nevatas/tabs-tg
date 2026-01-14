@@ -115,11 +115,12 @@ async def get_posts(
     if tab_id is not None:
         query = query.where(Post.tab_id == tab_id)
     else:
+    else:
         # If tab_id is None, return posts with tab_id IS NULL (Inbox)
-        # Assuming frontend explicitly passes tab_id for other tabs
         query = query.where(Post.tab_id.is_(None))
 
-    query = query.order_by(Post.created_at.desc())
+    # Sort by position (manual order) then created_at (newest first fallback)
+    query = query.order_by(Post.position.asc(), Post.created_at.desc())
     
     result = await db.execute(query)
     posts = result.scalars().all()
@@ -128,9 +129,13 @@ async def get_posts(
     grouped_posts = []
     current_group = None
     
-    # Posts are ordered by created_at desc (newest first). 
-    # For grouping, it's easier if we process them and look for same group_id.
-    # But since they are ordered by time, posts in the same group should be adjacent.
+    # Posts are ordered by position/created_at.
+    # Grouping logic assumes group items are adjacent.
+    # With manual ordering, users might separate group items. 
+    # BUT typically a group is a single logical unit.
+    # Ideally, we should treat a group as a single "Item" for ordering.
+    # For now, let's keep the assumption they stay together or the user reordered them together.
+    # Or, we can just group by ID effectively.
     
     for post in posts:
         # If post has a group_id
@@ -198,6 +203,33 @@ async def get_posts(
         grouped_posts.append(current_group)
         
     return grouped_posts
+
+class ReorderRequest(BaseModel):
+    post_ids: list[int]
+
+@app.put("/posts/reorder")
+async def reorder_posts(
+    request: ReorderRequest,
+    current_user_id: int = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    # Iterate through the list of IDs and update their position
+    # This is naive but works for small lists (~100 items).
+    # For optimization, we could use CASE WHEN SQL.
+    
+    # First verify ownership of all posts (optional but good)
+    # Just filtering by user_id in update logic is safe.
+    
+    for index, post_id in enumerate(request.post_ids):
+        await db.execute(
+            update(Post)
+            .where(Post.id == post_id)
+            .where(Post.user_id == current_user_id)
+            .values(position=index)
+        )
+        
+    await db.commit()
+    return {"status": "success"}
 
 @app.delete("/posts/{post_id}")
 async def delete_post(

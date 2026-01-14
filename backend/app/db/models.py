@@ -41,6 +41,7 @@ class Post(Base):
     media_type = Column(String, nullable=True)
     media_group_id = Column(String, nullable=True)
     tab_id = Column(Integer, ForeignKey("tabs.id"), nullable=True)
+    position = Column(Integer, default=0, index=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     owner = relationship("User", back_populates="posts")
