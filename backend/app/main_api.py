@@ -1,9 +1,9 @@
 from fastapi import FastAPI, Depends, Header, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
-from sqlalchemy import delete
+from sqlalchemy import delete, update
 from app.db.base import get_db, engine, Base
-from app.db.models import Post, AuthSession, User
+from app.db.models import Post, AuthSession, User, Tab
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 import os
@@ -17,7 +17,10 @@ app = FastAPI()
 # Allow CORS for frontend
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"], # In production, specify exact origin
+    allow_origins=[
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -103,15 +106,22 @@ async def get_current_user(authorization: str = Header(None), db: AsyncSession =
 
 @app.get("/posts")
 async def get_posts(
-    current_user_id: int = Depends(get_current_user), 
-    db: AsyncSession = Depends(get_db)
+    current_user_id: int = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+    tab_id: Optional[int] = None
 ):
-    # Filter by user_id
-    result = await db.execute(
-        select(Post)
-        .where(Post.user_id == current_user_id)
-        .order_by(Post.created_at.desc())
-    )
+    query = select(Post).where(Post.user_id == current_user_id)
+    
+    if tab_id is not None:
+        query = query.where(Post.tab_id == tab_id)
+    else:
+        # If tab_id is None, return posts with tab_id IS NULL (Inbox)
+        # Assuming frontend explicitly passes tab_id for other tabs
+        query = query.where(Post.tab_id.is_(None))
+
+    query = query.order_by(Post.created_at.desc())
+    
+    result = await db.execute(query)
     posts = result.scalars().all()
     
     # Grouping Logic (Same as before)
@@ -218,3 +228,75 @@ async def delete_post(
         
     await db.commit()
     return {"message": "Post deleted"}
+
+@app.get("/tabs")
+async def get_tabs(
+    current_user_id: int = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    result = await db.execute(select(Tab).where(Tab.user_id == current_user_id).order_by(Tab.created_at))
+    tabs = result.scalars().all()
+    return tabs
+
+@app.post("/tabs")
+async def create_tab(
+    request: dict,
+    current_user_id: int = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    title = request.get("title")
+    if not title:
+        raise HTTPException(status_code=400, detail="Title is required")
+    
+    new_tab = Tab(user_id=current_user_id, title=title)
+    db.add(new_tab)
+    await db.commit()
+    await db.refresh(new_tab)
+    return new_tab
+
+@app.delete("/tabs/{tab_id}")
+async def delete_tab(
+    tab_id: int,
+    current_user_id: int = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    result = await db.execute(select(Tab).where(Tab.id == tab_id, Tab.user_id == current_user_id))
+    tab = result.scalar_one_or_none()
+    if not tab:
+        raise HTTPException(status_code=404, detail="Tab not found")
+        
+    # Set posts in this tab to Inbox (tab_id=None)
+    await db.execute(update(Post).where(Post.tab_id == tab_id).values(tab_id=None))
+    
+    await db.delete(tab)
+    await db.commit()
+    return {"status": "success"}
+
+@app.patch("/posts/{post_id}/move")
+async def move_post(
+    post_id: int,
+    request: dict,
+    current_user_id: int = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    tab_id = request.get("tab_id") # Can be None for Inbox
+    
+    # Check if post belongs to user
+    result = await db.execute(select(Post).where(Post.id == post_id, Post.user_id == current_user_id))
+    post = result.scalar_one_or_none()
+    if not post:
+        raise HTTPException(status_code=404, detail="Post not found")
+
+    # If media group, move all parts
+    if post.media_group_id:
+         await db.execute(
+            update(Post)
+            .where(Post.media_group_id == post.media_group_id)
+            .where(Post.user_id == current_user_id)
+            .values(tab_id=tab_id)
+        )
+    else:
+        post.tab_id = tab_id
+        
+    await db.commit()
+    return {"status": "success"}

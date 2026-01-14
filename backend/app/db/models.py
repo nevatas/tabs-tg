@@ -13,6 +13,7 @@ class User(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     posts = relationship("Post", back_populates="owner")
+    tabs = relationship("Tab", back_populates="owner")
     sessions = relationship("AuthSession", back_populates="user")
 
 
@@ -39,6 +40,21 @@ class Post(Base):
     media_url = Column(String, nullable=True)
     media_type = Column(String, nullable=True)
     media_group_id = Column(String, nullable=True)
+    tab_id = Column(Integer, ForeignKey("tabs.id"), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     owner = relationship("User", back_populates="posts")
+    tab = relationship("Tab", back_populates="posts")
+    tab = relationship("Tab", back_populates="posts")
+
+
+class Tab(Base):
+    __tablename__ = "tabs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"))
+    title = Column(String, index=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    owner = relationship("User", back_populates="tabs")
+    posts = relationship("Post", back_populates="tab")
