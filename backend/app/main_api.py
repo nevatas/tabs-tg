@@ -115,7 +115,7 @@ async def get_posts(
     if tab_id is not None:
         query = query.where(Post.tab_id == tab_id)
     else:
-    else:
+
         # If tab_id is None, return posts with tab_id IS NULL (Inbox)
         query = query.where(Post.tab_id.is_(None))
 
