@@ -1,7 +1,7 @@
 from fastapi import FastAPI, Depends, Header, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
-from sqlalchemy import delete, update
+from sqlalchemy import delete, update, text
 from app.db.base import get_db, engine, Base
 from app.db.models import Post, AuthSession, User, Tab
 from fastapi.middleware.cors import CORSMiddleware
@@ -40,6 +40,13 @@ async def startup():
         try:
             async with engine.begin() as conn:
                 await conn.run_sync(Base.metadata.create_all)
+                # Manual migration for 'position' column in 'tabs' table if missing
+                try:
+                    await conn.execute(text("ALTER TABLE tabs ADD COLUMN position INTEGER DEFAULT 0"))
+                    print("Added 'position' column to 'tabs' table")
+                except Exception:
+                    # Column likely exists or other error (ignore)
+                    pass
             break
         except Exception as e:
             retries -= 1
@@ -269,9 +276,28 @@ async def get_tabs(
     current_user_id: int = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    result = await db.execute(select(Tab).where(Tab.user_id == current_user_id).order_by(Tab.created_at))
+    result = await db.execute(select(Tab).where(Tab.user_id == current_user_id).order_by(Tab.position.asc(), Tab.created_at.asc()))
     tabs = result.scalars().all()
     return tabs
+
+class ReorderTabsRequest(BaseModel):
+    tab_ids: list[int]
+
+@app.put("/tabs/reorder")
+async def reorder_tabs(
+    request: ReorderTabsRequest,
+    current_user_id: int = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    for index, tab_id in enumerate(request.tab_ids):
+        await db.execute(
+            update(Tab)
+            .where(Tab.id == tab_id)
+            .where(Tab.user_id == current_user_id)
+            .values(position=index)
+        )
+    await db.commit()
+    return {"status": "success"}
 
 @app.post("/tabs")
 async def create_tab(
