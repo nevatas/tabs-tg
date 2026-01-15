@@ -68,6 +68,9 @@ async def save_post(message: types.Message):
     source_url = None
     
     # Extract source URL from forwarded message
+    entities = message.entities or message.caption_entities
+    entities_data = None
+    
     if message.forward_from_chat:
         # Message forwarded from a channel or group
         chat = message.forward_from_chat

@@ -249,7 +249,7 @@ async def delete_post(
     post = result.scalar_one_or_none()
     
     if not post:
-        return {"error": "Post not found"}
+        raise HTTPException(status_code=404, detail="Post not found")
 
     if post.user_id != current_user_id:
         raise HTTPException(status_code=403, detail="Not authorized to delete this post")
@@ -270,6 +270,35 @@ async def delete_post(
         
     await db.commit()
     return {"message": "Post deleted"}
+
+@app.delete("/tabs/{tab_id}")
+async def delete_tab(
+    tab_id: int,
+    current_user_id: int = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    # Check ownership
+    result = await db.execute(select(Tab).where(Tab.id == tab_id))
+    tab = result.scalar_one_or_none()
+
+    if not tab:
+        raise HTTPException(status_code=404, detail="Tab not found")
+        
+    if tab.user_id != current_user_id:
+        raise HTTPException(status_code=403, detail="Not authorized to delete this tab")
+
+    # Move posts to Inbox (tab_id = NULL)
+    await db.execute(
+        update(Post)
+        .where(Post.tab_id == tab_id)
+        .values(tab_id=None)
+    )
+
+    # Delete the tab
+    await db.delete(tab)
+    await db.commit()
+
+    return {"message": "Tab deleted, posts moved to Inbox"}
 
 @app.get("/tabs")
 async def get_tabs(
