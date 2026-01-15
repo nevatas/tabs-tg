@@ -249,11 +249,14 @@ async def delete_post(
         
     if post.media_group_id:
         # Delete all posts in the group (ensure they belong to user too, though likely)
-        await db.execute(
-            delete(Post)
+        # Fetch group posts first to ensure proper session tracking and avoid bulk delete pitfalls
+        group_posts = await db.execute(
+            select(Post)
             .where(Post.media_group_id == post.media_group_id)
-            .where(Post.user_id == current_user_id) # Double safety
+            .where(Post.user_id == current_user_id)
         )
+        for p in group_posts.scalars().all():
+            await db.delete(p)
     else:
         # Delete single post
         await db.execute(delete(Post).where(Post.id == post_id))
