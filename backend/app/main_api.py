@@ -2,6 +2,7 @@ from fastapi import FastAPI, Depends, Header, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy import delete, update, text
+from sqlalchemy.sql import func
 from app.db.base import get_db, engine, Base
 from app.db.models import Post, AuthSession, User, Tab
 from fastapi.middleware.cors import CORSMiddleware
@@ -17,11 +18,7 @@ app = FastAPI()
 # Allow CORS for frontend
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:3000",
-        "http://127.0.0.1:3000",
-        "http://192.168.8.191:3000",
-    ],
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -211,6 +208,71 @@ async def get_posts(
             grouped_posts.append(single_post)
 
     return grouped_posts
+
+from fastapi import UploadFile, File, Form
+import shutil
+import time
+
+@app.post("/posts")
+async def create_post(
+    content: str = Form(None),
+    media: UploadFile = File(None),
+    current_user_id: int = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    # Dummy Telegram Message ID (negative timestamp to avoid collision)
+    dummy_tg_id = -int(time.time())
+    
+    media_url = None
+    media_type = None
+
+    if media:
+        # Determine media type (simplified)
+        content_type = media.content_type
+        if content_type.startswith('image/'):
+            media_type = 'photo'
+        elif content_type.startswith('video/'):
+            media_type = 'video'
+        else:
+            media_type = 'document'
+            
+        # Save file
+        file_ext = os.path.splitext(media.filename)[1]
+        filename = f"{uuid.uuid4()}{file_ext}"
+        filepath = os.path.join(STATIC_DIR, "images", filename)
+        
+        # Ensure images dir exists (created in startup but good to be safe)
+        os.makedirs(os.path.join(STATIC_DIR, "images"), exist_ok=True)
+        
+        with open(filepath, "wb") as buffer:
+            shutil.copyfileobj(media.file, buffer)
+            
+        media_url = f"/static/images/{filename}"
+
+    new_post = Post(
+        user_id=current_user_id,
+        telegram_message_id=dummy_tg_id,
+        content=content,
+        media_url=media_url,
+        media_type=media_type,
+        created_at=func.now()
+    )
+    
+    db.add(new_post)
+    await db.commit()
+    await db.refresh(new_post)
+    
+    # Return formatted structure similar to get_posts
+    return {
+        'id': new_post.id,
+        'telegram_message_id': new_post.telegram_message_id,
+        'content': new_post.content,
+        'entities': None,
+        'source_url': None,
+        'created_at': new_post.created_at,
+        'media_group_id': None,
+        'media': [{'url': new_post.media_url, 'type': new_post.media_type}] if new_post.media_url else []
+    }
 
 class ReorderRequest(BaseModel):
     post_ids: list[int]

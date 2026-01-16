@@ -6,3 +6,4 @@ aiogram
 pydantic-settings
 alembic
 python-dotenv
+python-multipart
