@@ -11,7 +11,7 @@ import os
 import uuid
 import logging
 from pydantic import BaseModel
-from typing import Optional
+from typing import Optional, List
 
 app = FastAPI()
 
