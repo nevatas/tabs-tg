@@ -216,51 +216,105 @@ import time
 @app.post("/posts")
 async def create_post(
     content: str = Form(None),
-    media: UploadFile = File(None),
+    media: List[UploadFile] = File(None),
     current_user_id: int = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
     # Dummy Telegram Message ID (negative timestamp to avoid collision)
     dummy_tg_id = -int(time.time())
+    media_group_id = str(uuid.uuid4()) if media and len(media) > 1 else None
     
-    media_url = None
-    media_type = None
+    saved_posts = []
 
+    # Case 1: Text only
+    if not media:
+        new_post = Post(
+            user_id=current_user_id,
+            telegram_message_id=dummy_tg_id,
+            content=content,
+            media_url=None,
+            media_type=None,
+            created_at=func.now()
+        )
+        db.add(new_post)
+        await db.commit()
+        await db.refresh(new_post)
+        saved_posts.append(new_post)
+
+    # Case 2: With Media
+    else:
+        for i, file in enumerate(media):
+            # Determine media type
+            content_type = file.content_type
+            if content_type.startswith('image/'):
+                media_type = 'photo'
+            elif content_type.startswith('video/'):
+                media_type = 'video'
+            else:
+                media_type = 'document'
+                
+            # Save file
+            file_ext = os.path.splitext(file.filename)[1]
+            filename = f"{uuid.uuid4()}{file_ext}"
+            filepath = os.path.join(STATIC_DIR, "images", filename)
+            
+            # Ensure images dir exists
+            os.makedirs(os.path.join(STATIC_DIR, "images"), exist_ok=True)
+            
+            with open(filepath, "wb") as buffer:
+                shutil.copyfileobj(file.file, buffer)
+            
+            # Create Post
+            # Associate content only with the first media item
+            post_content = content if i == 0 else None
+            
+            new_post = Post(
+                user_id=current_user_id,
+                telegram_message_id=dummy_tg_id, # Simplified: sharing ID for simplicity in this context, or decrementing
+                content=post_content,
+                media_url=f"/static/images/{filename}",
+                media_type=media_type,
+                media_group_id=media_group_id,
+                created_at=func.now()
+            )
+            db.add(new_post)
+            saved_posts.append(new_post)
+            
+            # Decrement dummy ID for next item to avoid constraint violations if any (though currently no unique dummy constraint)
+            dummy_tg_id -= 1
+
+        await db.commit()
+        for p in saved_posts:
+            await db.refresh(p)
+     
+    # Return grouped structure (using the first post as the main representative or constructing a group)
+    # Re-using the get_posts logic logic to format the return would be ideal, 
+    # but for now we construct a single response representing the group if possible, 
+    # OR we just return the first post object and let the frontend refetch or handle it.
+    
+    # Let's construct a response that matches the 'formatted_post' structure of get_posts
+    # Find the main post (text or first media)
+    main_post = saved_posts[0]
+    
+    response_obj = {
+        'id': main_post.id,
+        'telegram_message_id': main_post.telegram_message_id,
+        'content': content,  # Return full content
+        'entities': None,
+        'source_url': main_post.source_url,
+        'created_at': main_post.created_at,
+        'media_group_id': media_group_id,
+        'media': []
+    }
+    
     if media:
-        # Determine media type (simplified)
-        content_type = media.content_type
-        if content_type.startswith('image/'):
-            media_type = 'photo'
-        elif content_type.startswith('video/'):
-            media_type = 'video'
-        else:
-            media_type = 'document'
+        for p in saved_posts:
+            response_obj['media'].append({
+                'url': p.media_url,
+                'type': p.media_type
+            })
             
-        # Save file
-        file_ext = os.path.splitext(media.filename)[1]
-        filename = f"{uuid.uuid4()}{file_ext}"
-        filepath = os.path.join(STATIC_DIR, "images", filename)
-        
-        # Ensure images dir exists (created in startup but good to be safe)
-        os.makedirs(os.path.join(STATIC_DIR, "images"), exist_ok=True)
-        
-        with open(filepath, "wb") as buffer:
-            shutil.copyfileobj(media.file, buffer)
-            
-        media_url = f"/static/images/{filename}"
-
-    new_post = Post(
-        user_id=current_user_id,
-        telegram_message_id=dummy_tg_id,
-        content=content,
-        media_url=media_url,
-        media_type=media_type,
-        created_at=func.now()
-    )
-    
-    db.add(new_post)
-    await db.commit()
-    await db.refresh(new_post)
+    return response_obj
     
     # Return formatted structure similar to get_posts
     return {
