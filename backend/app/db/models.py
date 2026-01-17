@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Text, DateTime, BigInteger, ForeignKey
+from sqlalchemy import Column, Integer, String, Text, JSON, DateTime, BigInteger, ForeignKey
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
 from app.db.base import Base
@@ -40,6 +40,7 @@ class Post(Base):
     media_url = Column(String, nullable=True)
     media_type = Column(String, nullable=True)
     media_group_id = Column(String, nullable=True)
+    link_preview = Column(JSON, nullable=True)
     tab_id = Column(Integer, ForeignKey("tabs.id"), nullable=True)
     position = Column(Integer, default=0, index=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())

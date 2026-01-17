@@ -12,6 +12,9 @@ import uuid
 import logging
 from pydantic import BaseModel
 from typing import Optional, List
+import requests
+from bs4 import BeautifulSoup
+import json
 
 app = FastAPI()
 
@@ -36,15 +39,27 @@ async def startup():
     retries = 5
     while retries > 0:
         try:
+            # 1. Create Tables
             async with engine.begin() as conn:
                 await conn.run_sync(Base.metadata.create_all)
-                # Manual migration for 'position' column in 'tabs' table if missing
-                try:
+
+            # 2. Migration: Tabs Position
+            try:
+                async with engine.begin() as conn:
                     await conn.execute(text("ALTER TABLE tabs ADD COLUMN position INTEGER DEFAULT 0"))
                     print("Added 'position' column to 'tabs' table")
-                except Exception:
-                    # Column likely exists or other error (ignore)
-                    pass
+            except Exception:
+                pass
+
+            # 3. Migration: Posts Link Preview
+            try:
+                async with engine.begin() as conn:
+                    await conn.execute(text("ALTER TABLE posts ADD COLUMN link_preview JSON DEFAULT NULL"))
+                    print("Added 'link_preview' column to 'posts' table")
+            except Exception as e:
+                # Log explicitly to debug if it fails for other reasons
+                print(f"Migration warning (link_preview): {e}")
+            
             break
         except Exception as e:
             retries -= 1
@@ -57,6 +72,61 @@ async def startup():
 async def root():
     return {"message": "Hello World"}
 
+
+# Link Preview Utils
+@app.get("/utils/link-preview")
+async def get_link_preview(url: str):
+    try:
+        # Initial check for YouTube URLs specifically (optional optimization)
+        
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+        }
+        
+        response = requests.get(url, headers=headers, timeout=5)
+        response.raise_for_status()
+        
+        soup = BeautifulSoup(response.text, 'html.parser')
+        
+        title = soup.find("meta", property="og:title")
+        description = soup.find("meta", property="og:description")
+        image = soup.find("meta", property="og:image")
+        site_name = soup.find("meta", property="og:site_name")
+        
+        # Fallbacks
+        if not title:
+            title = soup.title
+            title_text = title.string if title else ""
+        else:
+            title_text = title["content"]
+            
+        description_text = description["content"] if description else ""
+        image_url = image["content"] if image else ""
+        site_name_text = site_name["content"] if site_name else ""
+
+        # Basic descriptions fallbacks
+        if not description_text:
+             meta_desc = soup.find("meta", attrs={"name": "description"})
+             if meta_desc:
+                 description_text = meta_desc["content"]
+
+        return {
+            "url": url,
+            "title": title_text,
+            "description": description_text,
+            "image": image_url,
+            "site_name": site_name_text
+        }
+    except Exception as e:
+        print(f"Error fetching preview: {e}")
+        # Return partial info or just the url if failed
+        return {
+            "url": url,
+            "title": "",
+            "description": "",
+            "image": "",
+            "site_name": ""
+        }
 
 # Auth Models
 class AuthInitResponse(BaseModel):
@@ -196,6 +266,7 @@ async def get_posts(
                 'content': post.content,
                 'entities': post.entities,
                 'source_url': post.source_url,
+                'link_preview': post.link_preview,
                 'created_at': post.created_at,
                 'media_group_id': None,
                 'media': []
@@ -216,6 +287,7 @@ import time
 @app.post("/posts")
 async def create_post(
     content: str = Form(None),
+    link_preview: str = Form(None),
     media: List[UploadFile] = File(None),
     current_user_id: int = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
@@ -234,6 +306,7 @@ async def create_post(
             content=content,
             media_url=None,
             media_type=None,
+            link_preview=json.loads(link_preview) if link_preview else None,
             created_at=func.now()
         )
         db.add(new_post)
@@ -275,6 +348,7 @@ async def create_post(
                 media_url=f"/static/images/{filename}",
                 media_type=media_type,
                 media_group_id=media_group_id,
+                link_preview=json.loads(link_preview) if link_preview and i == 0 else None,
                 created_at=func.now()
             )
             db.add(new_post)
@@ -301,6 +375,7 @@ async def create_post(
         'telegram_message_id': main_post.telegram_message_id,
         'content': content,  # Return full content
         'entities': None,
+        'link_preview': main_post.link_preview,
         'source_url': main_post.source_url,
         'created_at': main_post.created_at,
         'media_group_id': media_group_id,
