@@ -1,25 +1,13 @@
 # Railway Configuration
 # This file defines how Railway should deploy your services
 
-[build]
-builder = "dockerfile"
-dockerfilePath = "backend/Dockerfile"
-
-[[services]]
-name = "api"
-dockerfile = "backend/Dockerfile"
-startCommand = "uvicorn app.main_api:app --host 0.0.0.0 --port $PORT"
-
-[services.healthcheck]
-path = "/health"
-timeout = 30
-interval = 10
-
-[[services]]
-name = "bot"
-dockerfile = "backend/Dockerfile"
-startCommand = "python -m app.main_bot"
-
-[[services]]
-name = "frontend"
-dockerfile = "frontend/Dockerfile"
+# Note: Railway v2 doesn't fully support railway.toml for multi-service setup
+# You need to configure services manually in Railway UI:
+# 
+# For API and Bot services:
+#   - Root Directory: /backend
+#   - Dockerfile Path: Dockerfile
+#
+# For Frontend service:
+#   - Root Directory: /frontend
+#   - Dockerfile Path: Dockerfile
