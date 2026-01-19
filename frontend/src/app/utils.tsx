@@ -3,9 +3,13 @@ import { Entity } from './types';
 
 // Dynamic API Base URL
 export const getApiBaseUrl = () => {
+    // Use environment variable if available (set in Railway)
+    if (process.env.NEXT_PUBLIC_API_URL) {
+        return process.env.NEXT_PUBLIC_API_URL;
+    }
+    // Fallback for local development
     if (typeof window === 'undefined') return 'http://localhost:8000';
-    const url = `http://${window.location.hostname}:8000`;
-    return url;
+    return `http://${window.location.hostname}:8000`;
 };
 
 // Helper for empty image

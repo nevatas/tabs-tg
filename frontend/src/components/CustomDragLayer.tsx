@@ -1,6 +1,7 @@
 import React from 'react';
 import { useDragLayer } from 'react-dnd';
 import { Post } from '../app/types';
+import { getApiBaseUrl } from '../app/utils';
 
 export const CustomDragLayer = () => {
     const { isDragging, item, currentOffset } = useDragLayer((monitor) => ({
@@ -35,7 +36,7 @@ export const CustomDragLayer = () => {
                                     </svg>
                                 </div>
                             ) : (
-                                <img src={`http://192.168.8.191:8000${post.media[0].url}`} alt="" className="w-full h-full object-cover" />
+                                <img src={`${getApiBaseUrl()}${post.media[0].url}`} alt="" className="w-full h-full object-cover" />
                             )}
                             {post.media.length > 1 && (
                                 <div className="absolute top-2 right-2 bg-black/50 backdrop-blur-md px-2 py-1 rounded-md text-[10px] text-white font-bold">

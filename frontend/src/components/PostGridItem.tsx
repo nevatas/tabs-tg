@@ -2,6 +2,7 @@ import React, { useRef, useEffect } from 'react';
 import { useDrag, useDrop } from 'react-dnd';
 import { ItemTypes } from '../app/constants';
 import { Post } from '../app/types';
+import { getApiBaseUrl } from '../app/utils';
 
 // Duplicate helper for now
 const getEmptyImage = () => {
@@ -65,13 +66,13 @@ export const PostGridItem: React.FC<PostGridItemProps> = ({ post, index, onSwap,
                     <div className="relative h-3/5 bg-gray-50 overflow-hidden shrink-0">
                         {post.media[0].type === 'photo' ? (
                             <img
-                                src={`http://localhost:8000${post.media[0].url}`}
+                                src={`${getApiBaseUrl()}${post.media[0].url}`}
                                 alt="Thumbnail"
                                 className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
                             />
                         ) : (
                             <video
-                                src={`http://localhost:8000${post.media[0].url}`}
+                                src={`${getApiBaseUrl()}${post.media[0].url}`}
                                 className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
                                 muted
                             />
