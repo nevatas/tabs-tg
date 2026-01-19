@@ -72,6 +72,12 @@ async def startup():
 async def root():
     return {"message": "Hello World"}
 
+@app.get("/health")
+async def health_check():
+    """Health check endpoint for Railway and monitoring"""
+    return {"status": "healthy", "service": "tabs-tg-api"}
+
+
 
 # Link Preview Utils
 @app.get("/utils/link-preview")
