@@ -18,6 +18,11 @@ COPY frontend/ .
 # Set environment variable for build
 ENV NEXT_TELEMETRY_DISABLED=1
 
+# Accept build argument for API URL and set as environment variable
+# Default to Railway API URL for production builds
+ARG NEXT_PUBLIC_API_URL=https://api-production-73ea.up.railway.app
+ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
+
 # Build the application
 RUN npm run build
 
